@@ -45,8 +45,8 @@ class TimeSegmentBoundary:
         idx = None
         for i, seg in enumerate(self.segments):
             if seg[0] <= time_slice[0] < seg[1]:
-                # NOTE(longtou): this may occur, sample boundary; <laugh> + <sli> region?
-                if time_slice[1] >= seg[1]:
+                # NOTE(longtou): this may occur, at sample boundary; <laugh> + <sli> region?
+                if time_slice[1] > seg[1]:
                     # method 1)
                     break # skip this slice
                     # method 2)
@@ -286,6 +286,7 @@ def segment_laughing(model, sample_concat, sr, batch_size, input_sec, over_lap_s
 
         return sample_concat, laughter_json
 
+# NOTE(longtou): batch_size=100 -> 5s * 100 -> 6m?
 def main(args, input_sec=7, batch_size=100):
     audio_model_name = "jonatasgrosman/wav2vec2-large-xlsr-53-english"
 
@@ -320,13 +321,15 @@ def main(args, input_sec=7, batch_size=100):
                              )
 
     dataset = wds.WebDataset(args.shard_url)
-    dataset = Processor(dataset, concat_until_max_dur, max_dur=60)
-    data_loader = DataLoader(dataset, batch_size=None, num_workers=2, prefetch_factor=100, pin_memory=True)
+    dataset = Processor(dataset, concat_until_max_dur, max_dur=args.max_dur)
+    data_loader = DataLoader(dataset, batch_size=None, num_workers=args.nj, prefetch_factor=100, pin_memory=True)
     inputs = {"sr": sr, "batch_size": batch_size,
               "input_sec": input_sec, "over_lap_sec": over_lap_sec,
+              "min_laugh_len": args.min_laugh_len,"laugh_prob": args.laugh_prob,
               }
-    for sample in tqdm(data_loader):
-        #pass
+
+    for idx, sample in tqdm(enumerate(data_loader)):
+        #if idx > 200: break
         result_concat, laughter_json = segment_laughing(model, sample, **inputs)
 
         if laughter_json:
@@ -358,6 +361,10 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=str, default="wds_laughter")
     parser.add_argument('--model_path', type=str,
         default="/home/longtou.2024/mount/longtou/saved/LaughterSegmentation/models/model.safetensors")
+    parser.add_argument('--min_laugh_len', default=0.5, type=float)
+    parser.add_argument('--laugh_prob', default=0.8, type=float)
+    parser.add_argument('--nj', default=2, type=int)
+    parser.add_argument('--max_dur', default=60, type=int, help="max audio duration of batch in sec")
     args = parser.parse_args()
 
     main(args)
